@@ -50,11 +50,20 @@ def render(job_id, image, audio):
     except Exception as e:
         state.update(status='error',stage=str(e)[:1000])
 
+@app.get('/api/capabilities')
+def capabilities():
+    # Public uploads stay disabled until the operator explicitly configures a licensed engine.
+    engine_ready = (WAV2LIP_DIR/'inference.py').is_file() and CHECKPOINT.is_file()
+    enabled = os.getenv('ENABLE_PUBLIC_GENERATION', 'false').lower() == 'true' and engine_ready
+    return {'processing_enabled': enabled, 'max_upload_mb': MAX_MB, 'chunk_seconds': CHUNK_SECONDS}
+
 @app.get('/')
 def home(): return FileResponse(ROOT/'static'/'index.html')
 
 @app.post('/api/create')
 async def create(image:UploadFile=File(...),audio:UploadFile=File(...), consent:str=Form(...)):
+    if not capabilities()['processing_enabled']:
+        raise HTTPException(503, 'AI processing is not configured. Public uploads are disabled.')
     if consent!='yes': raise HTTPException(400,'You must confirm you have permission to use the likeness and audio.')
     if image.content_type not in ('image/jpeg','image/png','image/webp'): raise HTTPException(400,'Upload a JPG, PNG, or WebP portrait.')
     if audio.content_type not in ('audio/mpeg','audio/mp3','audio/wav','audio/x-wav','audio/mp4','audio/x-m4a','application/octet-stream'): raise HTTPException(400,'Upload an MP3, WAV, or M4A audio file.')
